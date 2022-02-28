@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# =============================================================================
+# Created By  : Daniele Sabatini
+# Created Date: Mon Feb 28 12:52:26 2022
+# =============================================================================
+
+# =============================================================================
+# Imports
+# =============================================================================
+
+import pandas as pd
+import numpy  as np
+import zipfile
+import matplotlib.pyplot as plt
+from scipy import stats
+
+"============================== Import data =================================="
+
+### The data for this project comes from this Kaggle dataset:
+# https://www.kaggle.com/stefanoleone992/mutual-funds-and-etfs    
+file_path       = "/Users/danielesabatini/Documents/CVs/Portfolio/Data/archive.zip"
+file_folder = "/Users/danielesabatini/Documents/CVs/Portfolio/Data"
+
+with zipfile.ZipFile(file_path, 'r') as zip_ref:
+    zip_ref.extractall(file_folder)
+
+' Parameters setting'
+
+benchmark = "SPY" ### Set up the benchmark ETF name 
+funds     = ["BGGKX","AEIMX"]  ### Define the list of funds to analyse and compare to benchmark
+
+'Import data for benchmark ETF'
+
+data_path         = file_folder + "/ETF prices.csv"
+ETF_prices        = pd.read_csv(data_path) # Upload the ETF Price list
+ETF_prices.index  = ETF_prices['price_date'] #Set date as index
+ETF_prices        = ETF_prices[["fund_symbol",'adj_close']]        
+
+Bench_prices      = ETF_prices[ETF_prices["fund_symbol"] == benchmark]
+Bench_prices      = Bench_prices.iloc[:,1] # Remove the benchmark name
+Bench_prices.name = benchmark # Assign the benchmark name to the time series
+
+bench             = Bench_prices.pct_change().dropna() ## create the returns of the benchmark
+
+'Import data for Mutual Funds' 
+
+MF_files = [ '/MutualFund prices - A-E.csv'
+            ,'/MutualFund prices - F-K.csv'
+            ,'/MutualFund prices - L-P.csv'
+            ,'/MutualFund prices - Q-Z.csv']
+# Initialise the Prices dataset
+MF_prices_path = file_folder + MF_files[0]
+Temp_MFraw_prices = pd.read_csv ( MF_prices_path)
+MF_prices = Temp_MFraw_prices
+    
+r = 1
+for mf_name in MF_files[1:]:
+    MF_prices_path    = file_folder + mf_name
+    Temp_MFraw_prices = pd.read_csv (MF_prices_path)
+    
+    MF_prices.append(Temp_MFraw_prices)
+    r += 1;print(r)
+    
+# Assing the price data as index
+MF_prices.index = MF_prices['price_date']
+MF_prices       = MF_prices.drop('price_date',axis =1 )
+
+'Select three Mutual funds for analysis'
+
+fund_prices = MF_prices[MF_prices['fund_symbol'] == funds[0]]["nav_per_share"]   
+fund_prices.name = funds[0]
+
+r = 1
+for fund_name in funds[1:]:
+    temp_fund_prices      = MF_prices[MF_prices['fund_symbol'] == fund_name]["nav_per_share"]   
+    temp_fund_prices.name = fund_name
+    fund_prices = pd.concat([fund_prices,temp_fund_prices], axis=1).dropna()
+    r += 1;print(r)
+
+fund_prices = fund_prices.pct_change().dropna() ## Calculate the daily returns
+
+'Create the finalised dataset by adding the benchmark to the fund returns'
+dataset       = pd.concat([bench, fund_prices], axis=1).dropna()
+dataset.index = pd.to_datetime(dataset.index, format='%Y/%m/%d') #Transform the date
+
+asset_names = dataset.columns
+
+
+'##################### Tail Risk Metrics ##################################'
+'=== Drawdown ==='
+# Calculate the cumulative returns
+
+for asse in asset_names:
+    
+    cum_rets    = dataset[asse].cumsum()
+    # Calculate the running maximum
+    running_max = np.maximum.accumulate(cum_rets)
+    # Calculate the percentage drawdown
+    drawdown = (cum_rets)/running_max - 1
+    # Begin from the third month
+    drawdown = drawdown[drawdown.index>'2019-11-01']
+
+    # Plot the results
+    drawdown.plot(title = "Drawdown Comparison")
+
+    print(asse)
+
+plt.show()
+
+'-------------------- HISTORICAL SIMULATIONS ------------------------'
+
+'=== Value-at-Risk (VaR) ==='
+for asse in asset_names:
+    # Calculate historical VaR(95) "Historical Simulation"
+    var_95 = np.percentile(dataset[asse], 100 - 95)
+    print(asse + " Historical Simulation VaR (95%) is equal to:" + str(round(var_95,4)))
+
+    # Sort the returns for plotting
+    sorted_rets = sorted(dataset[asse])
+
+    # Plot the probability of each sorted return quantile
+    plt.hist(sorted_rets)#, normed=True)
+
+    # Denote the VaR 95 quantile
+    plt.axvline(x=var_95, color='r', linestyle='-', label="VaR 95: {0:.2f}%".format(var_95))
+    plt.show()
+    
+'=== Conditional Value-at-Risk or Expected Shortfall (CVaR or ES) ==='
+for asse in asset_names:
+ 
+    # Historical CVaR 95
+    cvar_95 = dataset[asse][dataset[asse] < var_95].mean()
+    print(asse + " Historical Simulation CVaR (95%) is equal to:" + str(round(cvar_95,4)))
+
+    # Sort the returns for plotting
+    sorted_rets = sorted(dataset[asse])
+    
+    # Plot the probability of each return quantile
+    plt.hist(sorted_rets)#, normed=True)
+    
+    # Denote the VaR 95 and CVaR 95 quantiles
+    plt.axvline(x=var_95, color="r", linestyle="-", label='VaR 95: {0:.2f}%'.format(var_95))
+    plt.axvline(x=cvar_95, color='b', linestyle='-', label='CVaR 95: {0:.2f}%'.format(cvar_95))
+    plt.show()
+    
+    
+'-------------------- PARAMETRIC METHOD ------------------------'
+
+# Import norm from scipy.stats
+from scipy.stats import norm
+
+for asse in asset_names:
+
+    # Estimate the average daily return
+    mu = np.mean(dataset[asse])
+    
+    # Estimate the daily volatility
+    vol = np.std(dataset[asse])
+    
+    # Set the VaR confidence level
+    confidence_level=0.05 
+    
+    # Calculate Parametric VaR
+    var_95 = norm.ppf(confidence_level , mu , vol)
+    print(asse,'Mean: ', str(mu), '\n',asse,'Volatility: ', str(vol), '\n',asse,'VaR(95): ', str(var_95))
+    
+    # Aggregate forecasted VaR
+    forecasted_values = np.empty([100, 2])
+    
+    # Loop through each forecast period
+    for i in range(0,100):
+        # Save the time horizon i
+        forecasted_values[i, 0] = i
+        # Save the forecasted VaR 95
+        forecasted_values[i, 1] = var_95*np.sqrt(i+1)
+    # Plot the results
+    fvalues = pd.DataFrame(forecasted_values).iloc[:,1] * -100
+
+    forecasted_var = fvalues.plot(title = "VaR 95 Scaled by Time")
+    forecasted_var.set_ylabel("Forecasted VaR over 100 days (%)")
+   
+'-------------------- MONTE CARLO SIMULATION METHOD ------------------------'
+
+for asse in asset_names:
+    
+    # Set the simulation parameters
+    mu = np.mean(dataset[asse])
+    vol = np.std(dataset[asse])
+    T = 252
+    S0 = 10
+    
+    # Add one to the random returns
+    rand_rets = np.random.normal(mu,vol,T) + 1
+    
+    # Forecasted random walk
+    forecasted_values = rand_rets.cumprod() * S0
+    
+    # Plot the random walk
+    plt.plot(range(0, T), forecasted_values)
+    plt.show()
+    
+    # Loop through 100 simulations
+    for i in range(0,100):
+    
+        # Generate the random returns
+        rand_rets = np.random.normal(mu, vol, T) + 1
+        
+        # Create the Monte carlo path
+        forecasted_values = S0*(rand_rets).cumprod()
+        
+        # Plot the Monte Carlo path
+        plt.plot(range(T), forecasted_values)
+    
+    # Show the simulations
+    plt.show()
+    
+    # Aggregate the returns
+    sim_returns = []
+    
+    # Loop through 100 simulations
+    for i in range(100):
+    
+        # Generate the Random Walk
+        rand_rets = np.random.normal(mu, vol, T)
+        
+        # Save the results
+        sim_returns.append(rand_rets)
+    
+    # Calculate the VaR(99)
+    var_99 = np.percentile(sim_returns,100-99)
+    print(asse + " Parametric VaR(99): ", round(100*var_99, 2),"%")
