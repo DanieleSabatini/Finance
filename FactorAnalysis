@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# =============================================================================
+# Created By  : Daniele Sabatini
+# Created Date: Wed Feb 23 08:55:20 2022
+# =============================================================================
+
+# =============================================================================
+# Imports
+# =============================================================================
+
+import pandas as pd
+import numpy  as np
+import zipfile
+import matplotlib.pyplot as plt
+from scipy import stats
+
+"============================== Import data =================================="
+
+### The data for this project comes from this Kaggle dataset:
+# https://www.kaggle.com/stefanoleone992/mutual-funds-and-etfs    
+file_path       = "/Users/danielesabatini/Documents/CVs/Portfolio/Data/archive.zip"
+file_folder = "/Users/danielesabatini/Documents/CVs/Portfolio/Data"
+
+with zipfile.ZipFile(file_path, 'r') as zip_ref:
+    zip_ref.extractall(file_folder)
+
+' Parameters setting'
+
+benchmark = "SPY" ### Set up the benchmark ETF name 
+funds     = ["BGGKX","AEIMX"]  ### Define the list of funds to analyse and compare to benchmark
+
+'Import data for benchmark ETF'
+
+data_path         = file_folder + "/ETF prices.csv"
+ETF_prices        = pd.read_csv(data_path) # Upload the ETF Price list
+ETF_prices.index  = ETF_prices['price_date'] #Set date as index
+ETF_prices        = ETF_prices[["fund_symbol",'adj_close']]        
+
+Bench_prices      = ETF_prices[ETF_prices["fund_symbol"] == benchmark]
+Bench_prices      = Bench_prices.iloc[:,1] # Remove the benchmark name
+Bench_prices.name = benchmark # Assign the benchmark name to the time series
+
+bench             = Bench_prices.pct_change().dropna() ## create the returns of the benchmark
+
+'Import data for Mutual Funds' 
+
+MF_files = [ '/MutualFund prices - A-E.csv'
+            ,'/MutualFund prices - F-K.csv'
+            ,'/MutualFund prices - L-P.csv'
+            ,'/MutualFund prices - Q-Z.csv']
+# Initialise the Prices dataset
+MF_prices_path = file_folder + MF_files[0]
+Temp_MFraw_prices = pd.read_csv ( MF_prices_path)
+MF_prices = Temp_MFraw_prices
+    
+r = 1
+for mf_name in MF_files[1:]:
+    MF_prices_path    = file_folder + mf_name
+    Temp_MFraw_prices = pd.read_csv (MF_prices_path)
+    
+    MF_prices.append(Temp_MFraw_prices)
+    r += 1;print(r)
+    
+# Assing the price data as index
+MF_prices.index = MF_prices['price_date']
+MF_prices       = MF_prices.drop('price_date',axis =1 )
+
+'Select three Mutual funds for analysis'
+
+fund_prices = MF_prices[MF_prices['fund_symbol'] == funds[0]]["nav_per_share"]   
+fund_prices.name = funds[0]
+
+r = 1
+for fund_name in funds[1:]:
+    temp_fund_prices      = MF_prices[MF_prices['fund_symbol'] == fund_name]["nav_per_share"]   
+    temp_fund_prices.name = fund_name
+    fund_prices = pd.concat([fund_prices,temp_fund_prices], axis=1).dropna()
+    r += 1;print(r)
+
+fund_prices = fund_prices.pct_change().dropna() ## Calculate the daily returns
+
+'Create the finalised dataset by adding the benchmark to the fund returns'
+dataset       = pd.concat([bench, fund_prices], axis=1).dropna()
+dataset.index = pd.to_datetime(dataset.index, format='%Y/%m/%d') #Transform the date
+
+asset_names = dataset.columns
+
+'##################### Peformance Comparison ###############################'
+
+perf_plot = dataset.cumsum().plot(title = "Performance Comparison")
+perf_plot.set_ylabel("Cumulative Performance")
+
+sigma_annualised = np.std(dataset)*np.sqrt(252) 
+print(sigma_annualised)
+
+# Calculate the implied annualized average return
+mean_return_annualized = ((1+np.mean(dataset))**252)-1
+print(mean_return_annualized)
+
+
+'##################### TEST FOR NORMALITY ##################################'
+
+# Run the Shapiro-Wilk normality test in Python 
+
+for asset in dataset.columns:
+    
+    p_value = stats.shapiro(dataset[asset])[1]
+    
+    if p_value <= 0.05:     
+        print(asset + ": Null hypothesis of normality is rejected.")
+    else:     print(asset + ": Null hypothesis of normality is accepted.")
+#The p-value is the second variable returned in the list.If the p-value is less than0.05,the null hypothesis is rejected because the data are most likely non-normal.
+
+'######################## FACTOR ANALYSIS ##################################'
+# Factors downloaded from: https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
+factors_file = file_folder + "/Factors"
+file_path    = factors_file + "/F-F_Research_Data_Factors_daily_CSV.zip"
+
+with zipfile.ZipFile(file_path, 'r') as zip_ref:
+    zip_ref.extractall(factors_file)
+
+# Upload the Fama-French factors
+Factors_path          = factors_file + "/F-F_Research_Data_Factors_daily.CSV"    
+factors_returns       = pd.read_csv(Factors_path) #### The data needs some cleaning
+factors_returns.index = factors_returns.iloc[:,0]   # Assign the index
+factors_returns.index = pd.to_datetime(factors_returns.index, format='%Y%m%d') #Transform the date
+factors_returns       = factors_returns.iloc[:,1:]/100 #Keep only the factors
+
+# Merge the two datasets
+fact_data = factors_returns.join(dataset,how="inner")
+
+############ Create the CAPM Model ##############
+# Calculate excess portfolio returns
+#FamaFrenchData['Portfolio_Excess'] = fact_data[['SPY','BGGKX','AEIMX']] - fact_data['RF']
+
+# Plot returns vs excess returns
+CumulativeReturns = ((1+fact_data).cumprod()-1)
+CumulativeReturns.plot()
+plt.show()
+
+#### Remove the Risk Free
+
+for columnName in dataset.iloc[:,0:].columns:
+    print('Colunm Name : ', columnName)
+    fact_data[columnName] = fact_data[columnName] - fact_data["RF"]
+
+# Calculate the co-variance matrix between Portfolio_Excess and Market_Excess
+covariance_matrix = fact_data[['BGGKX', 'SPY']].cov()
+
+# Extract the co-variance co-efficient
+covariance_coefficient = covariance_matrix.iloc[0, 1]
+print(covariance_coefficient)
+
+
+# Import statsmodels.formula.api
+import statsmodels.formula.api as smf
+
+# Define the regression formula
+CAPM_model = smf.ols(formula='BGGKX ~ SPY', data=fact_data )
+
+# Print adjusted r-squared of the fitted regression
+CAPM_fit = CAPM_model.fit()
+print(CAPM_fit.rsquared_adj)
+
+# Extract the beta
+regression_beta = CAPM_fit.params["SPY"]
+print(regression_beta)
+
+# Define the regression formula
+FamaFrench_model = smf.ols(formula='BGGKX ~ SPY + SMB + HML', data=fact_data)
+
+# Fit the regression
+FamaFrench_fit = FamaFrench_model.fit()
+
+# Extract the adjusted r-squared
+regression_adj_rsq = FamaFrench_fit.rsquared_adj
+print(regression_adj_rsq)
+
+# Extract the p-value of the SMB factor
+smb_pval = FamaFrench_fit.pvalues['SMB']
+
+# If the p-value is significant, print significant
+if smb_pval < 0.05:
+    significant_msg = 'significant'
+else:
+    significant_msg = 'not significant'
+
+# Print the SMB coefficient
+smb_coeff = FamaFrench_fit.params['SMB']
+print("The SMB coefficient is ", smb_coeff, " and is ", significant_msg)
+# Print the SMB coefficient
+hml_coeff = FamaFrench_fit.params['HML']
+print("The HML coefficient is ", hml_coeff, " and is ", significant_msg)
+
+# Calculate your portfolio alpha
+portfolio_alpha = FamaFrench_fit.params['Intercept']
+print(portfolio_alpha)
+
+# Annualize your portfolio alpha
+portfolio_alpha_annualized = ((1+portfolio_alpha)**252)-1
+print(portfolio_alpha_annualized)
