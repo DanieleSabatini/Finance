@@ -1,0 +1,136 @@
+def price_change_pred( yld , coupon, maturity , dyld = 0.01, face_value=100,convexity_calc = True ):
+  
+    '''
+    ### LEGEND ###
+    yld         = reference yield  
+    dyld        = yield change (for duration and convexity calcualtion) 
+    fi_interest = Fixed Income product interest rate
+    maturity    = Use the paymeny periods
+    face value  = default value is 100
+    ''' 
+    
+    # Calculate the FI price
+    price      = -npf.pv(rate=yld     , nper=maturity, pmt=coupon*100, fv=face_value) 
+    # Prices with stress yields up
+    price_up   = -npf.pv(rate=yld + 0.01, nper=maturity, pmt=coupon*100, fv=face_value) 
+    # Prices with stress yields down
+    price_down = -npf.pv(rate=yld - 0.01, nper=maturity, pmt=coupon*100, fv=face_value)
+
+    # Calculate the Duration    
+    duration = (price_down - price_up) / (2 * price * 0.01 )
+    # Calculate the Dollar Duration
+    dollar_duration = duration * price * 0.01
+    duration_adjustment = -100 * dollar_duration * dyld
+    
+    # If wanted calculate the Conxexity (Advised if for high yield values)
+    if convexity_calc == True :
+        convexity            = (price_down + price_up - 2 * price) / (price * 0.01 ** 2)
+        dollar_convexity     = convexity * price * 0.01
+        convexity_adjustment = dollar_convexity * 100 ** 2 * 0.01 ** 2
+        
+        # Calculate hte price adjustment with Duration and Convexity
+        price_prediction = duration_adjustment + convexity_adjustment
+    else:
+        # Calculate hte price adjustment with Duration 
+        price_prediction = -100 * dollar_duration * dyld 
+        
+    ### Print results
+    print("Current Price: ",   round(price,4)  )    
+    print("Predicted Change: ", round(price_prediction,4), "with",dyld*100,"% yield change")
+    print("Predicted Price: ", round(price + price_prediction,4))
+    return(round(price + price_prediction,4))
+
+  
+
+def DV01( yld , coupon, maturity , dyld = 0.01, face_value=100,convexity_calc = True ):
+  
+    '''
+    ### LEGEND ###
+    yld         = reference yield  
+    dyld        = yield change (for duration and convexity calcualtion) 
+    fi_interest = Fixed Income product interest rate
+    maturity    = Use the paymeny periods
+    face value  = default value is 100
+    ''' 
+    
+    # Calculate the FI price
+    price      = -npf.pv(rate=yld     , nper=maturity, pmt=coupon*100, fv=face_value) 
+    # Prices with stress yields up
+    price_up   = -npf.pv(rate=yld + 0.01, nper=maturity, pmt=coupon*100, fv=face_value) 
+    # Prices with stress yields down
+    price_down = -npf.pv(rate=yld - 0.01, nper=maturity, pmt=coupon*100, fv=face_value)
+
+    # Calculate the Duration    
+    duration = (price_down - price_up) / (2 * price * 0.01 )
+    # Calculate the DV01
+    dv01 = duration * price * 0.0001
+
+    return(dv01)    
+  
+
+def DV01_qnt( yld , coupon, maturity ,portfolio_dv01, dyld = 0.01, face_value=100,convexity_calc = True ):
+  
+    '''
+    ### LEGEND ###
+    yld         = reference yield  
+    dyld        = yield change (for duration and convexity calcualtion) 
+    fi_interest = Fixed Income product interest rate
+    maturity    = Use the paymeny periods
+    face value  = default value is 100
+    ''' 
+    
+    # Calculate the FI price
+    price      = -npf.pv(rate=yld     , nper=maturity, pmt=coupon*100, fv=face_value) 
+    # Prices with stress yields up
+    price_up   = -npf.pv(rate=yld + 0.01, nper=maturity, pmt=coupon*100, fv=face_value) 
+    # Prices with stress yields down
+    price_down = -npf.pv(rate=yld - 0.01, nper=maturity, pmt=coupon*100, fv=face_value)
+
+    # Calculate the Duration    
+    duration = (price_down - price_up) / (2 * price * 0.01 )
+    # Calculate the DV01
+    dv01 = duration * price * 0.0001
+
+    
+    # Calculate quantity of bond to hedge portfolio
+    qnt = round(portfolio_dv01/bond_dv01,1)
+    print("Number of bonds to sell: ", qnt)
+
+    return(qnt)    
+  
+ 
+
+
+def DV01_amt( yld , coupon, maturity ,portfolio_dv01,currency = "$", dyld = 0.01, face_value=100,convexity_calc = True ):
+  
+    '''
+    ### LEGEND ###
+    yld         = reference yield  
+    dyld        = yield change (for duration and convexity calcualtion) 
+    fi_interest = Fixed Income product interest rate
+    maturity    = Use the paymeny periods
+    face value  = default value is 100
+    ''' 
+    
+    # Calculate the FI price
+    price      = -npf.pv(rate=yld     , nper=maturity, pmt=coupon*100, fv=face_value) 
+    # Prices with stress yields up
+    price_up   = -npf.pv(rate=yld + 0.01, nper=maturity, pmt=coupon*100, fv=face_value) 
+    # Prices with stress yields down
+    price_down = -npf.pv(rate=yld - 0.01, nper=maturity, pmt=coupon*100, fv=face_value)
+
+    # Calculate the Duration    
+    duration = (price_down - price_up) / (2 * price * 0.01 )
+    # Calculate the DV01
+    dv01 = duration * price * 0.0001
+
+    
+    # Calculate quantity of bond to hedge portfolio
+    qnt = round(portfolio_dv01/bond_dv01,1)
+    
+    # Calculate dollar amount of bond to hedge portfolio
+    amt = round(qnt*price,4)
+    print("Dollar amount to sell: ",currency, amt)
+    
+    return(amt)    
+  
