@@ -1,0 +1,55 @@
+def BlockMax_reserve(returns,psize,CI = .95,period = "Weekly"):    
+    from scipy.stats import genextreme
+    
+    # Resample the data into periods blocks    
+    if period    == "weekly":
+        period_maxima = returns.resample("W").max()
+    elif  period == "monthly":
+        period_maxima = returns.resample("M").max()
+    elif  period == "daily":
+        period_maxima = returns.resample("D").max()
+        
+    
+    # Plot the log daily losses of GE over the period 2007-2009
+    returns.plot()
+    
+    # Find all daily losses greater than 10%
+    extreme_losses = returns[returns>.1]
+    
+    # Scatter plot the extreme losses
+    extreme_losses.plot(style='o')
+    plt.show()
+    
+    
+    # Fit the GEV distribution to the maxima
+    p = genextreme.fit(period_maxima)
+    
+    # Compute the 99% VaR (needed for the CVaR computation)
+    VaR  = genextreme.ppf(CI, *p)
+    
+    # Compute the 99% CVaR estimate
+    CVaR = (1 / (1 - CI)) * genextreme.expect(lambda x: x, args=(p[0],), loc = p[1], scale = p[2], lb = VaR_99)
+    
+    # Calculate the reserve
+    reserve = round(psize *CVaR,4)
+    # Display the covering loss amount
+    print("Reserve amount: ", reserve )
+ 
+
+
+def VaR_KDE(returns,CI = .95):    
+
+    from scipy.stats import gaussian_kde
+    
+    ## Calculate the Kernel Density Estimation 
+    # Only the Gaussian estimation is considered for now
+    kde        = gaussian_kde(returns)
+    loss_range = np.linspace(np.min(returns),np.max(returns),1000)
+    plt.plot(loss_range, kde.pdf(loss_range))
+    
+    # Find the VaR as a quantile of random samples from the distributions
+    VaR = np.quantile(kde.resample(size=1000), CI)
+
+    print(CI*100, "% confidence interval VaR for KDE")
+    return(round(VaR,6))
+
